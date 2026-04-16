@@ -1,6 +1,6 @@
 from flask import Flask, request, render_template, jsonify
 from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime
+from datetime import datetime, timezone
 import socket
 from pos_printer import print_receipt, print_text
 
@@ -188,7 +188,7 @@ class Book(db.Model):
     format = db.Column(db.String(50))
     image = db.Column(db.String(100),unique=True)
     num_pages = db.Column(db.Integer)
-    pub_date = db.Column(db.DateTime,default =datetime.utcnow())
+    pub_date = db.Column(db.DateTime,default=lambda: datetime.now(timezone.utc))
 
     # Relationship
     pub_id = db.Column(db.Integer, db.ForeignKey('publication.id'))
@@ -207,6 +207,7 @@ class Book(db.Model):
         return '{} by {}'.format(self.title,self.author)
 
 if __name__ == '__main__':
-    db.create_all()
+    with app.app_context():
+        db.create_all()
     app.run(debug=True)
 
