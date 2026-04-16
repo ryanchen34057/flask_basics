@@ -9,7 +9,7 @@ app = Flask(__name__,template_folder = 'templates')
 
 app.config.update(
     SECRET_KEY = 'A153r3bwpn',
-    SQLALCHEMY_DATABASE_URI = 'postgresql://postgres:A153r3bwpn@localhost/catalog_db',
+    SQLALCHEMY_DATABASE_URI = 'sqlite:///catalog.db',
     SQLALCHEMY_TRACK_MODIFICATIONS=False
 )
 
