@@ -157,6 +157,51 @@ def pos_print_text():
     return jsonify(success=success, message=message)
 
 
+# Sunmi 模式：產生收據純文字 (由前端 JS Bridge 送出列印)
+@app.route('/pos/sunmi/receipt', methods=['POST'])
+def pos_sunmi_receipt():
+    data = request.get_json()
+    store_name = data.get('store_name', '我的商店')
+    items = data.get('items', [])
+    total = data.get('total', 0)
+    note = data.get('note', '')
+
+    if not items:
+        return jsonify(success=False, message='請至少新增一項商品')
+
+    W = 32
+    lines = []
+    lines.append(store_name)
+    lines.append('')
+    lines.append('=' * W)
+
+    for item in items:
+        name = item.get('name', '')
+        qty = item.get('qty', 1)
+        price = item.get('price', 0)
+        line_total = qty * price
+        lines.append(name)
+        detail = f'  {qty} x ${price}'
+        total_str = f'${line_total}'
+        spaces = max(1, W - len(detail) - len(total_str))
+        lines.append(detail + ' ' * spaces + total_str)
+
+    lines.append('=' * W)
+    total_line = f'總計: ${total}'
+    lines.append(' ' * max(0, W - len(total_line)) + total_line)
+    lines.append('')
+
+    if note:
+        lines.append('-' * W)
+        lines.append(f'備註: {note}')
+
+    lines.append('')
+    lines.append('        謝謝光臨！')
+    lines.append('')
+
+    return jsonify(success=True, text='\n'.join(lines))
+
+
 @app.route('/macros')
 def jinja_macros():
     movies_dict = {'autopsy of jane doe': 02.14,

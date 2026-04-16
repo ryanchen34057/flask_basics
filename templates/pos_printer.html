@@ -10,19 +10,40 @@
     <div class="container">
         <h1>POS 印表機控制台</h1>
 
-        <!-- 印表機連線設定 -->
+        <!-- 列印模式選擇 -->
         <div class="section">
-            <h2>印表機設定</h2>
-            <div class="form-row">
-                <label for="printer-ip">印表機 IP：</label>
-                <input type="text" id="printer-ip" placeholder="192.168.1.100" value="192.168.1.100">
+            <h2>列印模式</h2>
+            <div class="mode-selector">
+                <label class="mode-option">
+                    <input type="radio" name="print-mode" value="sunmi" checked onchange="switchMode()">
+                    <span class="mode-label">Sunmi 模式</span>
+                    <span class="mode-desc">在 Sunmi POS 機的瀏覽器上開啟此頁面，直接控制內建印表機</span>
+                </label>
+                <label class="mode-option">
+                    <input type="radio" name="print-mode" value="network" onchange="switchMode()">
+                    <span class="mode-label">網路印表機模式</span>
+                    <span class="mode-desc">透過 TCP (port 9100) 連線到網路印表機</span>
+                </label>
             </div>
-            <div class="form-row">
-                <label for="printer-port">Port：</label>
-                <input type="number" id="printer-port" value="9100" min="1" max="65535">
+
+            <!-- Sunmi 狀態 -->
+            <div id="sunmi-status" class="sunmi-status">
+                <span id="sunmi-detect"></span>
             </div>
-            <button id="btn-test" class="btn btn-secondary" onclick="testConnection()">測試連線</button>
-            <span id="connection-status"></span>
+
+            <!-- 網路印表機設定 (僅網路模式顯示) -->
+            <div id="network-settings" style="display:none;">
+                <div class="form-row">
+                    <label for="printer-ip">印表機 IP：</label>
+                    <input type="text" id="printer-ip" placeholder="192.168.1.100" value="192.168.1.100">
+                </div>
+                <div class="form-row">
+                    <label for="printer-port">Port：</label>
+                    <input type="number" id="printer-port" value="9100" min="1" max="65535">
+                </div>
+                <button class="btn btn-secondary" onclick="testConnection()">測試連線</button>
+                <span id="connection-status"></span>
+            </div>
         </div>
 
         <!-- 模式切換 -->
@@ -91,6 +112,110 @@
     </div>
 
     <script>
+        // ============================================================
+        // Sunmi JS Bridge 偵測與操作
+        // ============================================================
+        const SunmiPrinter = {
+            available: false,
+            bridge: null,
+
+            detect: function() {
+                // Sunmi 設備的 WebView 會注入這些 JavaScript 介面
+                if (typeof AndroidBridge !== 'undefined') {
+                    this.bridge = AndroidBridge;
+                    this.available = true;
+                } else if (typeof android !== 'undefined' && android.printText) {
+                    this.bridge = android;
+                    this.available = true;
+                } else if (typeof SunmiInnerPrinter !== 'undefined') {
+                    this.bridge = SunmiInnerPrinter;
+                    this.available = true;
+                } else if (typeof window.PrinterPlugin !== 'undefined') {
+                    this.bridge = window.PrinterPlugin;
+                    this.available = true;
+                }
+
+                // 檢查 User Agent 判斷是否為 Sunmi 設備
+                const ua = navigator.userAgent.toLowerCase();
+                this.isSunmiDevice = ua.includes('sunmi');
+
+                return this.available;
+            },
+
+            // 透過 JS Bridge 列印文字
+            printText: function(text) {
+                if (this.bridge) {
+                    try {
+                        if (this.bridge.printText) {
+                            this.bridge.printText(text + '\n', null);
+                        } else if (this.bridge.print) {
+                            this.bridge.print(text);
+                        }
+                        return true;
+                    } catch(e) {
+                        console.error('Sunmi printText error:', e);
+                        return false;
+                    }
+                }
+                return false;
+            },
+
+            // 設定對齊
+            setAlign: function(align) {
+                // 0=左, 1=中, 2=右
+                if (this.bridge && this.bridge.setAlignment) {
+                    try { this.bridge.setAlignment(align, null); } catch(e) {}
+                }
+            },
+
+            // 設定字體大小
+            setFontSize: function(size) {
+                if (this.bridge && this.bridge.setFontSize) {
+                    try { this.bridge.setFontSize(size, null); } catch(e) {}
+                }
+            },
+
+            // 粗體
+            setBold: function(on) {
+                if (this.bridge && this.bridge.sendRAWData) {
+                    try {
+                        const cmd = on ? 'G0E01' : 'G0E00';  // ESC E 1/0
+                        this.bridge.sendRAWData(cmd, null);
+                    } catch(e) {}
+                }
+            },
+
+            // 走紙
+            lineWrap: function(lines) {
+                if (this.bridge && this.bridge.lineWrap) {
+                    try { this.bridge.lineWrap(lines, null); } catch(e) {}
+                }
+            },
+
+            // 切紙
+            cutPaper: function() {
+                if (this.bridge && this.bridge.cutPaper) {
+                    try { this.bridge.cutPaper(null); } catch(e) {}
+                }
+            }
+        };
+
+        // ============================================================
+        // 模式控制
+        // ============================================================
+        function getMode() {
+            return document.querySelector('input[name="print-mode"]:checked').value;
+        }
+
+        function switchMode() {
+            const mode = getMode();
+            document.getElementById('network-settings').style.display = mode === 'network' ? 'block' : 'none';
+            document.getElementById('sunmi-status').style.display = mode === 'sunmi' ? 'block' : 'none';
+        }
+
+        // ============================================================
+        // 通用 UI 函式
+        // ============================================================
         function switchTab(tab) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
@@ -151,7 +276,7 @@
             html += '<div class="preview-separator">================================</div>';
 
             if (items.length === 0) {
-                html += '<div class="preview-line">（尚未新增商品）</div>';
+                html += '<div class="preview-line">(尚未新增商品)</div>';
             } else {
                 items.forEach(item => {
                     const lineTotal = item.qty * item.price;
@@ -169,11 +294,9 @@
             }
 
             html += '<div class="preview-footer">謝謝光臨！</div>';
-
             document.getElementById('receipt-preview').innerHTML = html;
         }
 
-        // 即時更新預覽
         document.addEventListener('input', function(e) {
             if (e.target.closest('#tab-receipt')) {
                 calculateTotal();
@@ -187,6 +310,138 @@
             setTimeout(() => { el.className = 'result-message hidden'; }, 5000);
         }
 
+        // ============================================================
+        // 建立收據純文字（給 Sunmi 模式用）
+        // ============================================================
+        function buildReceiptText(storeName, items, total, note) {
+            const W = 32; // 熱感應紙通常 32 字元寬
+            let lines = [];
+
+            // 店名
+            lines.push(storeName);
+            lines.push('');
+            lines.push('='.repeat(W));
+
+            // 商品
+            items.forEach(item => {
+                const lineTotal = item.qty * item.price;
+                lines.push(item.name);
+                const detail = `  ${item.qty} x $${item.price}`;
+                const totalStr = `$${lineTotal}`;
+                const spaces = Math.max(1, W - detail.length - totalStr.length);
+                lines.push(detail + ' '.repeat(spaces) + totalStr);
+            });
+
+            lines.push('='.repeat(W));
+
+            // 總計
+            const totalStr = `總計: $${total}`;
+            lines.push(' '.repeat(Math.max(0, W - totalStr.length)) + totalStr);
+            lines.push('');
+
+            // 備註
+            if (note) {
+                lines.push('-'.repeat(W));
+                lines.push(`備註: ${note}`);
+            }
+
+            lines.push('');
+            lines.push('        謝謝光臨！');
+            lines.push('');
+
+            return lines.join('\n');
+        }
+
+        // ============================================================
+        // Sunmi 模式列印
+        // ============================================================
+        function sunmiPrintReceipt() {
+            const items = getItems();
+            const total = calculateTotal();
+
+            if (items.length === 0) {
+                showResult(false, '請至少新增一項商品');
+                return;
+            }
+
+            const storeName = document.getElementById('store-name').value || '我的商店';
+            const note = document.getElementById('note').value;
+
+            // 透過 Flask 後端產生 ESC/POS 格式，由前端呼叫 Sunmi Bridge 送出
+            const payload = {
+                store_name: storeName,
+                items: items,
+                total: total,
+                note: note
+            };
+
+            fetch('/pos/sunmi/receipt', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    // 嘗試用 JS Bridge 列印
+                    if (SunmiPrinter.available) {
+                        SunmiPrinter.printText(data.text);
+                        SunmiPrinter.lineWrap(4);
+                        SunmiPrinter.cutPaper();
+                        showResult(true, '已透過 Sunmi Bridge 送出列印！');
+                    } else {
+                        // 沒有 JS Bridge，嘗試用 Sunmi 的 HTTP 本機列印服務
+                        sunmiFallbackPrint(data.text);
+                    }
+                } else {
+                    showResult(false, data.message);
+                }
+            })
+            .catch(e => showResult(false, '請求失敗：' + e.message));
+        }
+
+        function sunmiPrintText() {
+            const content = document.getElementById('text-content').value;
+            if (!content.trim()) {
+                showResult(false, '請輸入列印內容');
+                return;
+            }
+
+            if (SunmiPrinter.available) {
+                SunmiPrinter.printText(content);
+                SunmiPrinter.lineWrap(4);
+                SunmiPrinter.cutPaper();
+                showResult(true, '已透過 Sunmi Bridge 送出列印！');
+            } else {
+                sunmiFallbackPrint(content);
+            }
+        }
+
+        // Sunmi 本機 HTTP 列印服務 fallback
+        function sunmiFallbackPrint(text) {
+            // 嘗試呼叫 Sunmi 本機的 HTTP 列印介面 (部分 Sunmi 韌體支援)
+            fetch('http://localhost:18989/print', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: text }),
+                mode: 'no-cors'
+            })
+            .then(() => {
+                showResult(true, '已送出列印請求（透過本機列印服務）');
+            })
+            .catch(() => {
+                // 最後 fallback：透過 Flask 後端用 TCP 嘗試
+                showResult(false,
+                    '找不到 Sunmi JS Bridge。請確認：\n' +
+                    '1. 此頁面是在 Sunmi POS 機的瀏覽器上開啟\n' +
+                    '2. 或切換到「網路印表機模式」使用 TCP 連線'
+                );
+            });
+        }
+
+        // ============================================================
+        // 網路模式列印 (原有的 TCP 方式)
+        // ============================================================
         function getPrinterConfig() {
             return {
                 host: document.getElementById('printer-ip').value.trim(),
@@ -215,19 +470,13 @@
             }
         }
 
-        async function printReceipt() {
+        async function networkPrintReceipt() {
             const config = getPrinterConfig();
             const items = getItems();
             const total = calculateTotal();
 
-            if (!config.host) {
-                showResult(false, '請輸入印表機 IP');
-                return;
-            }
-            if (items.length === 0) {
-                showResult(false, '請至少新增一項商品');
-                return;
-            }
+            if (!config.host) { showResult(false, '請輸入印表機 IP'); return; }
+            if (items.length === 0) { showResult(false, '請至少新增一項商品'); return; }
 
             const payload = {
                 host: config.host,
@@ -251,18 +500,12 @@
             }
         }
 
-        async function printText() {
+        async function networkPrintText() {
             const config = getPrinterConfig();
             const content = document.getElementById('text-content').value;
 
-            if (!config.host) {
-                showResult(false, '請輸入印表機 IP');
-                return;
-            }
-            if (!content.trim()) {
-                showResult(false, '請輸入列印內容');
-                return;
-            }
+            if (!config.host) { showResult(false, '請輸入印表機 IP'); return; }
+            if (!content.trim()) { showResult(false, '請輸入列印內容'); return; }
 
             try {
                 const res = await fetch('/pos/print_text', {
@@ -281,8 +524,45 @@
             }
         }
 
-        // 初始化預覽
-        updatePreview();
+        // ============================================================
+        // 統一列印入口 (根據模式分流)
+        // ============================================================
+        function printReceipt() {
+            if (getMode() === 'sunmi') {
+                sunmiPrintReceipt();
+            } else {
+                networkPrintReceipt();
+            }
+        }
+
+        function printText() {
+            if (getMode() === 'sunmi') {
+                sunmiPrintText();
+            } else {
+                networkPrintText();
+            }
+        }
+
+        // ============================================================
+        // 初始化
+        // ============================================================
+        (function init() {
+            SunmiPrinter.detect();
+
+            const detectEl = document.getElementById('sunmi-detect');
+            if (SunmiPrinter.available) {
+                detectEl.textContent = 'Sunmi JS Bridge 已偵測到！可以直接列印。';
+                detectEl.className = 'status-ok';
+            } else if (SunmiPrinter.isSunmiDevice) {
+                detectEl.textContent = '偵測到 Sunmi 設備，但 JS Bridge 未啟用。請使用 Sunmi 內建瀏覽器開啟此頁面。';
+                detectEl.className = 'status-warn';
+            } else {
+                detectEl.innerHTML = '目前不在 Sunmi 設備上。<br>請在 Sunmi POS 機的瀏覽器中開啟此頁面來使用 Sunmi 模式。<br>或切換到「網路印表機模式」。';
+                detectEl.className = 'status-warn';
+            }
+
+            updatePreview();
+        })();
     </script>
 </body>
 </html>
