@@ -15,9 +15,14 @@
             <h2>列印模式</h2>
             <div class="mode-selector">
                 <label class="mode-option">
-                    <input type="radio" name="print-mode" value="sunmi" checked onchange="switchMode()">
-                    <span class="mode-label">Sunmi 模式</span>
-                    <span class="mode-desc">在 Sunmi POS 機的瀏覽器上開啟此頁面，直接控制內建印表機</span>
+                    <input type="radio" name="print-mode" value="queue" checked onchange="switchMode()">
+                    <span class="mode-label">Sunmi 遠端列印（推薦）</span>
+                    <span class="mode-desc">從任何電腦/手機提交列印，Sunmi POS 機自動接收並印出。需先在 Sunmi 上開啟接收端頁面。</span>
+                </label>
+                <label class="mode-option">
+                    <input type="radio" name="print-mode" value="sunmi" onchange="switchMode()">
+                    <span class="mode-label">Sunmi 本機模式</span>
+                    <span class="mode-desc">在 Sunmi POS 機的瀏覽器上直接開啟此頁面操作</span>
                 </label>
                 <label class="mode-option">
                     <input type="radio" name="print-mode" value="network" onchange="switchMode()">
@@ -26,8 +31,18 @@
                 </label>
             </div>
 
+            <!-- 佇列模式提示 -->
+            <div id="queue-status" class="sunmi-status">
+                <strong>使用方式：</strong><br>
+                1. 在 Sunmi POS 機的瀏覽器開啟：<code id="receiver-url"></code><br>
+                2. 確認接收端顯示「接收中...」<br>
+                3. 在這裡填寫內容，按列印即可<br>
+                <br>
+                <span>佇列狀態：<span id="queue-count">0</span> 個任務等待中</span>
+            </div>
+
             <!-- Sunmi 狀態 -->
-            <div id="sunmi-status" class="sunmi-status">
+            <div id="sunmi-status" class="sunmi-status" style="display:none;">
                 <span id="sunmi-detect"></span>
             </div>
 
@@ -211,6 +226,7 @@
             const mode = getMode();
             document.getElementById('network-settings').style.display = mode === 'network' ? 'block' : 'none';
             document.getElementById('sunmi-status').style.display = mode === 'sunmi' ? 'block' : 'none';
+            document.getElementById('queue-status').style.display = mode === 'queue' ? 'block' : 'none';
         }
 
         // ============================================================
@@ -525,22 +541,77 @@
         }
 
         // ============================================================
-        // 統一列印入口 (根據模式分流)
+        // 佇列模式列印 (遠端提交到佇列，Sunmi 接收端自動印)
         // ============================================================
-        function printReceipt() {
-            if (getMode() === 'sunmi') {
-                sunmiPrintReceipt();
-            } else {
-                networkPrintReceipt();
+        async function queuePrintReceipt() {
+            const items = getItems();
+            const total = calculateTotal();
+
+            if (items.length === 0) { showResult(false, '請至少新增一項商品'); return; }
+
+            const payload = {
+                type: 'receipt',
+                store_name: document.getElementById('store-name').value || '我的商店',
+                items: items,
+                total: total,
+                note: document.getElementById('note').value
+            };
+
+            try {
+                const res = await fetch('/pos/queue/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                showResult(data.success, data.message);
+                updateQueueCount();
+            } catch (e) {
+                showResult(false, '請求失敗：' + e.message);
             }
         }
 
-        function printText() {
-            if (getMode() === 'sunmi') {
-                sunmiPrintText();
-            } else {
-                networkPrintText();
+        async function queuePrintText() {
+            const content = document.getElementById('text-content').value;
+            if (!content.trim()) { showResult(false, '請輸入列印內容'); return; }
+
+            try {
+                const res = await fetch('/pos/queue/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ type: 'text', content: content })
+                });
+                const data = await res.json();
+                showResult(data.success, data.message);
+                updateQueueCount();
+            } catch (e) {
+                showResult(false, '請求失敗：' + e.message);
             }
+        }
+
+        async function updateQueueCount() {
+            try {
+                const res = await fetch('/pos/queue/status');
+                const data = await res.json();
+                document.getElementById('queue-count').textContent = data.pending;
+            } catch(e) {}
+        }
+
+        // ============================================================
+        // 統一列印入口 (根據模式分流)
+        // ============================================================
+        function printReceipt() {
+            const mode = getMode();
+            if (mode === 'queue') { queuePrintReceipt(); }
+            else if (mode === 'sunmi') { sunmiPrintReceipt(); }
+            else { networkPrintReceipt(); }
+        }
+
+        function printText() {
+            const mode = getMode();
+            if (mode === 'queue') { queuePrintText(); }
+            else if (mode === 'sunmi') { sunmiPrintText(); }
+            else { networkPrintText(); }
         }
 
         // ============================================================
@@ -561,7 +632,14 @@
                 detectEl.className = 'status-warn';
             }
 
+            // 顯示接收端 URL
+            const receiverUrl = window.location.origin + '/pos/sunmi';
+            document.getElementById('receiver-url').textContent = receiverUrl;
+
             updatePreview();
+            updateQueueCount();
+            // 定時更新佇列數量
+            setInterval(updateQueueCount, 5000);
         })();
     </script>
 </body>

@@ -2,6 +2,8 @@ from flask import Flask, request, render_template, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timezone
 import socket
+import threading
+import uuid
 from pos_printer import print_receipt, print_text
 
 
@@ -202,6 +204,91 @@ def pos_sunmi_receipt():
     return jsonify(success=True, text='\n'.join(lines))
 
 
+# ============================================================
+# 列印佇列系統 - 讓 Sunmi 自動輪詢並列印
+# ============================================================
+print_queue = []
+print_queue_lock = threading.Lock()
+
+
+# 提交列印任務到佇列
+@app.route('/pos/queue/add', methods=['POST'])
+def pos_queue_add():
+    data = request.get_json()
+    job_type = data.get('type', 'text')  # 'text' or 'receipt'
+    job_id = str(uuid.uuid4())[:8]
+
+    if job_type == 'receipt':
+        store_name = data.get('store_name', '我的商店')
+        items = data.get('items', [])
+        total = data.get('total', 0)
+        note = data.get('note', '')
+        if not items:
+            return jsonify(success=False, message='請至少新增一項商品')
+
+        W = 32
+        lines = []
+        lines.append(store_name)
+        lines.append('')
+        lines.append('=' * W)
+        for item in items:
+            name = item.get('name', '')
+            qty = item.get('qty', 1)
+            price = item.get('price', 0)
+            line_total = qty * price
+            lines.append(name)
+            detail = f'  {qty} x ${price}'
+            total_str = f'${line_total}'
+            spaces = max(1, W - len(detail) - len(total_str))
+            lines.append(detail + ' ' * spaces + total_str)
+        lines.append('=' * W)
+        total_line = f'總計: ${total}'
+        lines.append(' ' * max(0, W - len(total_line)) + total_line)
+        lines.append('')
+        if note:
+            lines.append('-' * W)
+            lines.append(f'備註: {note}')
+        lines.append('')
+        lines.append('        謝謝光臨！')
+        lines.append('')
+        text = '\n'.join(lines)
+    else:
+        text = data.get('content', '')
+        if not text.strip():
+            return jsonify(success=False, message='請輸入列印內容')
+
+    job = {'id': job_id, 'type': job_type, 'text': text, 'created': datetime.now(timezone.utc).isoformat()}
+
+    with print_queue_lock:
+        print_queue.append(job)
+
+    return jsonify(success=True, message=f'列印任務已加入佇列 (ID: {job_id})', job_id=job_id)
+
+
+# Sunmi 輪詢：取得下一個列印任務
+@app.route('/pos/queue/next', methods=['POST'])
+def pos_queue_next():
+    with print_queue_lock:
+        if print_queue:
+            job = print_queue.pop(0)
+            return jsonify(has_job=True, job=job)
+        else:
+            return jsonify(has_job=False)
+
+
+# 查看佇列狀態
+@app.route('/pos/queue/status')
+def pos_queue_status():
+    with print_queue_lock:
+        return jsonify(pending=len(print_queue), jobs=[j['id'] for j in print_queue])
+
+
+# Sunmi 接收端頁面 (在 Sunmi POS 機上開啟)
+@app.route('/pos/sunmi')
+def pos_sunmi_receiver():
+    return render_template('pos_sunmi_receiver.html')
+
+
 @app.route('/macros')
 def jinja_macros():
     movies_dict = {'autopsy of jane doe': 02.14,
@@ -254,5 +341,5 @@ class Book(db.Model):
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
-    app.run(debug=True)
+    app.run(debug=True, host='0.0.0.0')
 

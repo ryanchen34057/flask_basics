@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sunmi 列印接收端</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: "Microsoft JhengHei", sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .container { max-width: 500px; margin: 0 auto; }
+        h1 { text-align: center; margin-bottom: 20px; font-size: 1.3em; }
+
+        .status-card {
+            background: #16213e;
+            border-radius: 12px;
+            padding: 24px;
+            text-align: center;
+            margin-bottom: 16px;
+        }
+
+        .status-icon {
+            font-size: 48px;
+            margin-bottom: 12px;
+        }
+
+        .status-text {
+            font-size: 1.1em;
+            margin-bottom: 8px;
+        }
+
+        .status-detail {
+            font-size: 0.85em;
+            color: #888;
+        }
+
+        .stats {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .stat-box {
+            flex: 1;
+            background: #16213e;
+            border-radius: 8px;
+            padding: 16px;
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            color: #4a90d9;
+        }
+
+        .stat-label {
+            font-size: 0.8em;
+            color: #888;
+            margin-top: 4px;
+        }
+
+        .log-section {
+            background: #16213e;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+
+        .log-section h2 {
+            font-size: 0.95em;
+            margin-bottom: 8px;
+            color: #aaa;
+        }
+
+        .log-list {
+            max-height: 300px;
+            overflow-y: auto;
+            font-size: 0.85em;
+        }
+
+        .log-item {
+            padding: 6px 0;
+            border-bottom: 1px solid #2a2a4e;
+        }
+
+        .log-item:last-child { border-bottom: none; }
+
+        .log-time { color: #666; margin-right: 8px; }
+        .log-ok { color: #27ae60; }
+        .log-err { color: #e74c3c; }
+        .log-info { color: #4a90d9; }
+
+        .controls {
+            text-align: center;
+            margin-bottom: 16px;
+        }
+
+        .btn {
+            padding: 10px 24px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.95em;
+            font-family: inherit;
+            margin: 0 4px;
+        }
+
+        .btn-start { background: #27ae60; color: #fff; }
+        .btn-stop { background: #e74c3c; color: #fff; }
+        .btn-test { background: #4a90d9; color: #fff; }
+
+        .pulse {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #27ae60;
+            margin-right: 8px;
+            animation: pulse 1.5s infinite;
+        }
+
+        .pulse.stopped { background: #e74c3c; animation: none; }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.3; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Sunmi 列印接收端</h1>
+
+        <!-- 連線狀態 -->
+        <div class="status-card">
+            <div id="status-icon" class="status-icon">&#128752;</div>
+            <div class="status-text">
+                <span id="pulse" class="pulse"></span>
+                <span id="status-label">等待啟動...</span>
+            </div>
+            <div id="status-detail" class="status-detail">按下「開始接收」來啟動輪詢</div>
+        </div>
+
+        <!-- 控制按鈕 -->
+        <div class="controls">
+            <button id="btn-start" class="btn btn-start" onclick="startPolling()">開始接收</button>
+            <button id="btn-stop" class="btn btn-stop" onclick="stopPolling()" style="display:none;">暫停</button>
+            <button class="btn btn-test" onclick="testPrint()">測試列印</button>
+        </div>
+
+        <!-- 統計 -->
+        <div class="stats">
+            <div class="stat-box">
+                <div id="stat-printed" class="stat-number">0</div>
+                <div class="stat-label">已列印</div>
+            </div>
+            <div class="stat-box">
+                <div id="stat-pending" class="stat-number">0</div>
+                <div class="stat-label">佇列中</div>
+            </div>
+            <div class="stat-box">
+                <div id="stat-errors" class="stat-number">0</div>
+                <div class="stat-label">失敗</div>
+            </div>
+        </div>
+
+        <!-- 列印記錄 -->
+        <div class="log-section">
+            <h2>列印記錄</h2>
+            <div id="log-list" class="log-list">
+                <div class="log-item log-info"><span class="log-time">--:--:--</span>系統準備就緒</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let polling = false;
+        let pollTimer = null;
+        let printedCount = 0;
+        let errorCount = 0;
+
+        // ============================================================
+        // Sunmi JS Bridge
+        // ============================================================
+        const SunmiPrinter = {
+            bridge: null,
+            available: false,
+
+            detect: function() {
+                if (typeof AndroidBridge !== 'undefined') {
+                    this.bridge = AndroidBridge;
+                    this.available = true;
+                } else if (typeof android !== 'undefined' && android.printText) {
+                    this.bridge = android;
+                    this.available = true;
+                } else if (typeof SunmiInnerPrinter !== 'undefined') {
+                    this.bridge = SunmiInnerPrinter;
+                    this.available = true;
+                } else if (typeof window.PrinterPlugin !== 'undefined') {
+                    this.bridge = window.PrinterPlugin;
+                    this.available = true;
+                }
+                return this.available;
+            },
+
+            printText: function(text) {
+                if (!this.bridge) return false;
+                try {
+                    if (this.bridge.printText) {
+                        this.bridge.printText(text + '\n', null);
+                    } else if (this.bridge.print) {
+                        this.bridge.print(text);
+                    }
+                    return true;
+                } catch(e) {
+                    console.error('Sunmi print error:', e);
+                    return false;
+                }
+            },
+
+            lineWrap: function(n) {
+                if (this.bridge && this.bridge.lineWrap) {
+                    try { this.bridge.lineWrap(n, null); } catch(e) {}
+                }
+            },
+
+            cutPaper: function() {
+                if (this.bridge && this.bridge.cutPaper) {
+                    try { this.bridge.cutPaper(null); } catch(e) {}
+                }
+            }
+        };
+
+        // ============================================================
+        // 列印功能（帶 fallback）
+        // ============================================================
+        function doPrint(text) {
+            // 方法 1: Sunmi JS Bridge
+            if (SunmiPrinter.available) {
+                const ok = SunmiPrinter.printText(text);
+                if (ok) {
+                    SunmiPrinter.lineWrap(4);
+                    SunmiPrinter.cutPaper();
+                    return { success: true, method: 'JS Bridge' };
+                }
+            }
+
+            // 方法 2: 嘗試 Sunmi 本機列印服務
+            try {
+                fetch('http://localhost:18989/print', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: text }),
+                    mode: 'no-cors'
+                });
+                return { success: true, method: '本機服務 (no-cors)' };
+            } catch(e) {}
+
+            // 方法 3: 使用瀏覽器的 window.print()
+            const printWindow = document.createElement('iframe');
+            printWindow.style.display = 'none';
+            document.body.appendChild(printWindow);
+            printWindow.contentDocument.write('<pre style="font-family:monospace;font-size:12px;">' + text + '</pre>');
+            printWindow.contentDocument.close();
+            printWindow.contentWindow.print();
+            setTimeout(() => document.body.removeChild(printWindow), 1000);
+            return { success: true, method: 'window.print()' };
+        }
+
+        // ============================================================
+        // 輪詢控制
+        // ============================================================
+        function startPolling() {
+            polling = true;
+            document.getElementById('btn-start').style.display = 'none';
+            document.getElementById('btn-stop').style.display = 'inline-block';
+            document.getElementById('status-label').textContent = '接收中...';
+            document.getElementById('status-detail').textContent = '每 2 秒檢查一次新的列印任務';
+            document.getElementById('pulse').classList.remove('stopped');
+            addLog('info', '開始接收列印任務');
+            poll();
+        }
+
+        function stopPolling() {
+            polling = false;
+            if (pollTimer) clearTimeout(pollTimer);
+            document.getElementById('btn-start').style.display = 'inline-block';
+            document.getElementById('btn-stop').style.display = 'none';
+            document.getElementById('status-label').textContent = '已暫停';
+            document.getElementById('status-detail').textContent = '按下「開始接收」繼續';
+            document.getElementById('pulse').classList.add('stopped');
+            addLog('info', '已暫停接收');
+        }
+
+        async function poll() {
+            if (!polling) return;
+
+            try {
+                const res = await fetch('/pos/queue/next', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await res.json();
+
+                if (data.has_job) {
+                    const job = data.job;
+                    addLog('info', `收到任務 [${job.id}]，列印中...`);
+
+                    const result = doPrint(job.text);
+                    if (result.success) {
+                        printedCount++;
+                        document.getElementById('stat-printed').textContent = printedCount;
+                        addLog('ok', `任務 [${job.id}] 列印成功 (${result.method})`);
+                    } else {
+                        errorCount++;
+                        document.getElementById('stat-errors').textContent = errorCount;
+                        addLog('err', `任務 [${job.id}] 列印失敗`);
+                    }
+                }
+
+                // 更新佇列數量
+                updateQueueCount();
+
+            } catch(e) {
+                addLog('err', `輪詢失敗: ${e.message}`);
+            }
+
+            // 下一次輪詢
+            pollTimer = setTimeout(poll, 2000);
+        }
+
+        async function updateQueueCount() {
+            try {
+                const res = await fetch('/pos/queue/status');
+                const data = await res.json();
+                document.getElementById('stat-pending').textContent = data.pending;
+            } catch(e) {}
+        }
+
+        // ============================================================
+        // 測試列印
+        // ============================================================
+        function testPrint() {
+            const testText = [
+                '================================',
+                '        列印測試',
+                '================================',
+                '',
+                '如果你看到這張紙條，',
+                '代表 Sunmi 印表機連線正常！',
+                '',
+                '時間: ' + new Date().toLocaleString('zh-TW'),
+                '',
+                '================================',
+                ''
+            ].join('\n');
+
+            const result = doPrint(testText);
+            if (result.success) {
+                addLog('ok', `測試列印成功 (${result.method})`);
+            } else {
+                addLog('err', '測試列印失敗');
+            }
+        }
+
+        // ============================================================
+        // 記錄
+        // ============================================================
+        function addLog(type, message) {
+            const list = document.getElementById('log-list');
+            const now = new Date().toLocaleTimeString('zh-TW');
+            const cls = type === 'ok' ? 'log-ok' : type === 'err' ? 'log-err' : 'log-info';
+            const item = document.createElement('div');
+            item.className = 'log-item ' + cls;
+            item.innerHTML = `<span class="log-time">${now}</span>${message}`;
+            list.insertBefore(item, list.firstChild);
+
+            // 最多保留 50 條記錄
+            while (list.children.length > 50) {
+                list.removeChild(list.lastChild);
+            }
+        }
+
+        // ============================================================
+        // 初始化
+        // ============================================================
+        SunmiPrinter.detect();
+        if (SunmiPrinter.available) {
+            addLog('ok', 'Sunmi JS Bridge 偵測成功！');
+        } else {
+            addLog('info', '未偵測到 Sunmi JS Bridge，將使用 window.print() 作為替代方案');
+        }
+
+        // 自動開始接收
+        startPolling();
+    </script>
+</body>
+</html>
