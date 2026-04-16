@@ -15,14 +15,14 @@
             <h2>列印模式</h2>
             <div class="mode-selector">
                 <label class="mode-option">
-                    <input type="radio" name="print-mode" value="queue" checked onchange="switchMode()">
-                    <span class="mode-label">Sunmi 遠端列印（推薦）</span>
-                    <span class="mode-desc">從任何電腦/手機提交列印，Sunmi POS 機自動接收並印出。需先在 Sunmi 上開啟接收端頁面。</span>
+                    <input type="radio" name="print-mode" value="adb" checked onchange="switchMode()">
+                    <span class="mode-label">ADB 模式（推薦 Sunmi T2）</span>
+                    <span class="mode-desc">透過 ADB over WiFi 直接控制 Sunmi 內建印表機。首次需 USB 線設定一次，之後永久免線。</span>
                 </label>
                 <label class="mode-option">
-                    <input type="radio" name="print-mode" value="sunmi" onchange="switchMode()">
-                    <span class="mode-label">Sunmi 本機模式</span>
-                    <span class="mode-desc">在 Sunmi POS 機的瀏覽器上直接開啟此頁面操作</span>
+                    <input type="radio" name="print-mode" value="queue" onchange="switchMode()">
+                    <span class="mode-label">佇列模式</span>
+                    <span class="mode-desc">Sunmi 瀏覽器開著接收端頁面，自動接收列印任務</span>
                 </label>
                 <label class="mode-option">
                     <input type="radio" name="print-mode" value="network" onchange="switchMode()">
@@ -31,19 +31,36 @@
                 </label>
             </div>
 
+            <!-- ADB 模式設定 -->
+            <div id="adb-settings">
+                <div class="form-row">
+                    <label for="adb-ip">Sunmi IP：</label>
+                    <input type="text" id="adb-ip" placeholder="192.168.1.118" value="192.168.1.118">
+                </div>
+                <div class="form-row">
+                    <label for="adb-port">ADB Port：</label>
+                    <input type="number" id="adb-port" value="5555" min="1" max="65535">
+                </div>
+                <button class="btn btn-secondary" onclick="adbTest()">測試 ADB 連線</button>
+                <button class="btn btn-secondary" onclick="adbSetup()">首次 USB 設定</button>
+                <span id="adb-status"></span>
+                <div class="sunmi-status" style="margin-top:10px;">
+                    <strong>首次設定步驟：</strong><br>
+                    1. 用 USB 線連接 Sunmi 和電腦<br>
+                    2. Sunmi 上點「允許 USB 偵錯」<br>
+                    3. 按上面的「首次 USB 設定」按鈕<br>
+                    4. 成功後拔掉 USB 線，之後永久透過 WiFi 列印
+                </div>
+            </div>
+
             <!-- 佇列模式提示 -->
-            <div id="queue-status" class="sunmi-status">
+            <div id="queue-status" class="sunmi-status" style="display:none;">
                 <strong>使用方式：</strong><br>
                 1. 在 Sunmi POS 機的瀏覽器開啟：<code id="receiver-url"></code><br>
                 2. 確認接收端顯示「接收中...」<br>
                 3. 在這裡填寫內容，按列印即可<br>
                 <br>
                 <span>佇列狀態：<span id="queue-count">0</span> 個任務等待中</span>
-            </div>
-
-            <!-- Sunmi 狀態 -->
-            <div id="sunmi-status" class="sunmi-status" style="display:none;">
-                <span id="sunmi-detect"></span>
             </div>
 
             <!-- 網路印表機設定 (僅網路模式顯示) -->
@@ -224,8 +241,8 @@
 
         function switchMode() {
             const mode = getMode();
+            document.getElementById('adb-settings').style.display = mode === 'adb' ? 'block' : 'none';
             document.getElementById('network-settings').style.display = mode === 'network' ? 'block' : 'none';
-            document.getElementById('sunmi-status').style.display = mode === 'sunmi' ? 'block' : 'none';
             document.getElementById('queue-status').style.display = mode === 'queue' ? 'block' : 'none';
         }
 
@@ -541,6 +558,112 @@
         }
 
         // ============================================================
+        // ADB 模式
+        // ============================================================
+        function getAdbConfig() {
+            return {
+                host: document.getElementById('adb-ip').value.trim(),
+                port: parseInt(document.getElementById('adb-port').value) || 5555
+            };
+        }
+
+        async function adbTest() {
+            const config = getAdbConfig();
+            const status = document.getElementById('adb-status');
+            status.textContent = '測試中...';
+            status.className = '';
+
+            try {
+                const res = await fetch('/pos/adb/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+                const data = await res.json();
+                status.textContent = data.message;
+                status.className = data.success ? 'status-ok' : 'status-err';
+            } catch (e) {
+                status.textContent = '請求失敗：' + e.message;
+                status.className = 'status-err';
+            }
+        }
+
+        async function adbSetup() {
+            const config = getAdbConfig();
+            const status = document.getElementById('adb-status');
+            status.textContent = '設定中...請確認 USB 已連接';
+            status.className = '';
+
+            try {
+                const res = await fetch('/pos/adb/setup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+                const data = await res.json();
+                status.textContent = data.message;
+                status.className = data.success ? 'status-ok' : 'status-err';
+            } catch (e) {
+                status.textContent = '請求失敗：' + e.message;
+                status.className = 'status-err';
+            }
+        }
+
+        async function adbPrintReceipt() {
+            const config = getAdbConfig();
+            const items = getItems();
+            const total = calculateTotal();
+
+            if (!config.host) { showResult(false, '請輸入 Sunmi IP'); return; }
+            if (items.length === 0) { showResult(false, '請至少新增一項商品'); return; }
+
+            const payload = {
+                host: config.host,
+                port: config.port,
+                store_name: document.getElementById('store-name').value || '我的商店',
+                items: items,
+                total: total,
+                note: document.getElementById('note').value
+            };
+
+            try {
+                const res = await fetch('/pos/adb/print_receipt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                showResult(data.success, data.message);
+            } catch (e) {
+                showResult(false, '請求失敗：' + e.message);
+            }
+        }
+
+        async function adbPrintText() {
+            const config = getAdbConfig();
+            const content = document.getElementById('text-content').value;
+
+            if (!config.host) { showResult(false, '請輸入 Sunmi IP'); return; }
+            if (!content.trim()) { showResult(false, '請輸入列印內容'); return; }
+
+            try {
+                const res = await fetch('/pos/adb/print_text', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        host: config.host,
+                        port: config.port,
+                        content: content
+                    })
+                });
+                const data = await res.json();
+                showResult(data.success, data.message);
+            } catch (e) {
+                showResult(false, '請求失敗：' + e.message);
+            }
+        }
+
+        // ============================================================
         // 佇列模式列印 (遠端提交到佇列，Sunmi 接收端自動印)
         // ============================================================
         async function queuePrintReceipt() {
@@ -602,14 +725,16 @@
         // ============================================================
         function printReceipt() {
             const mode = getMode();
-            if (mode === 'queue') { queuePrintReceipt(); }
+            if (mode === 'adb') { adbPrintReceipt(); }
+            else if (mode === 'queue') { queuePrintReceipt(); }
             else if (mode === 'sunmi') { sunmiPrintReceipt(); }
             else { networkPrintReceipt(); }
         }
 
         function printText() {
             const mode = getMode();
-            if (mode === 'queue') { queuePrintText(); }
+            if (mode === 'adb') { adbPrintText(); }
+            else if (mode === 'queue') { queuePrintText(); }
             else if (mode === 'sunmi') { sunmiPrintText(); }
             else { networkPrintText(); }
         }

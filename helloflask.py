@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import socket
 import threading
 import uuid
-from pos_printer import print_receipt, print_text
+from pos_printer import print_receipt, print_text, adb_connect, adb_print_text, adb_setup_wifi, find_adb
 
 
 app = Flask(__name__,template_folder = 'templates')
@@ -287,6 +287,101 @@ def pos_queue_status():
 @app.route('/pos/sunmi')
 def pos_sunmi_receiver():
     return render_template('pos_sunmi_receiver.html')
+
+
+# ============================================================
+# ADB 列印模式 (透過 ADB over WiFi 控制 Sunmi 印表機)
+# ============================================================
+
+# ADB 初次設定 (USB 連線後執行一次)
+@app.route('/pos/adb/setup', methods=['POST'])
+def pos_adb_setup():
+    data = request.get_json()
+    host = data.get('host', '')
+    port = data.get('port', 5555)
+
+    if not host:
+        return jsonify(success=False, message='請輸入 Sunmi IP')
+
+    success, message = adb_setup_wifi(host, port)
+    return jsonify(success=success, message=message)
+
+
+# ADB 測試連線
+@app.route('/pos/adb/test', methods=['POST'])
+def pos_adb_test():
+    data = request.get_json()
+    host = data.get('host', '')
+    port = data.get('port', 5555)
+
+    if not host:
+        return jsonify(success=False, message='請輸入 Sunmi IP')
+
+    adb = find_adb()
+    if not adb:
+        return jsonify(success=False, message='找不到 adb.exe，請確認 platform-tools 已下載到桌面')
+
+    success, message = adb_connect(host, port)
+    return jsonify(success=success, message=message)
+
+
+# ADB 列印收據
+@app.route('/pos/adb/print_receipt', methods=['POST'])
+def pos_adb_print_receipt():
+    data = request.get_json()
+    host = data.get('host', '')
+    adb_port = data.get('port', 5555)
+    store_name = data.get('store_name', '我的商店')
+    items = data.get('items', [])
+    total = data.get('total', 0)
+    note = data.get('note', '')
+
+    if not host:
+        return jsonify(success=False, message='請輸入 Sunmi IP')
+    if not items:
+        return jsonify(success=False, message='請至少新增一項商品')
+
+    # 組合收據文字
+    W = 32
+    lines = [store_name, '', '=' * W]
+    for item in items:
+        name = item.get('name', '')
+        qty = item.get('qty', 1)
+        price = item.get('price', 0)
+        line_total = qty * price
+        lines.append(name)
+        detail = f'  {qty} x ${price}'
+        total_str = f'${line_total}'
+        spaces = max(1, W - len(detail) - len(total_str))
+        lines.append(detail + ' ' * spaces + total_str)
+    lines.append('=' * W)
+    total_line = f'總計: ${total}'
+    lines.append(' ' * max(0, W - len(total_line)) + total_line)
+    lines.append('')
+    if note:
+        lines.extend(['-' * W, f'備註: {note}'])
+    lines.extend(['', '        謝謝光臨！', ''])
+
+    receipt_text = '\n'.join(lines)
+    success, message = adb_print_text(host, receipt_text, adb_port)
+    return jsonify(success=success, message=message)
+
+
+# ADB 純文字列印
+@app.route('/pos/adb/print_text', methods=['POST'])
+def pos_adb_print_text_route():
+    data = request.get_json()
+    host = data.get('host', '')
+    adb_port = data.get('port', 5555)
+    content = data.get('content', '')
+
+    if not host:
+        return jsonify(success=False, message='請輸入 Sunmi IP')
+    if not content.strip():
+        return jsonify(success=False, message='請輸入列印內容')
+
+    success, message = adb_print_text(host, content, adb_port)
+    return jsonify(success=success, message=message)
 
 
 @app.route('/macros')
