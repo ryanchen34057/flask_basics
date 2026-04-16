@@ -1,6 +1,8 @@
-from flask import Flask, request , render_template
+from flask import Flask, request, render_template, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
+import socket
+from pos_printer import print_receipt, print_text
 
 
 app = Flask(__name__,template_folder = 'templates')
@@ -87,6 +89,73 @@ def filter_data():
                            movies = movies_dict,
                            name = None,
                            film = 'a chrismas carol')
+
+# POS 印表機控制台頁面
+@app.route('/pos')
+def pos_printer_page():
+    return render_template('pos_printer.html')
+
+
+# 測試印表機連線
+@app.route('/pos/test', methods=['POST'])
+def pos_test_connection():
+    data = request.get_json()
+    host = data.get('host', '')
+    port = data.get('port', 9100)
+
+    if not host:
+        return jsonify(success=False, message='請輸入印表機 IP')
+
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(3)
+        sock.connect((host, port))
+        sock.close()
+        return jsonify(success=True, message=f'連線成功！{host}:{port}')
+    except socket.timeout:
+        return jsonify(success=False, message=f'連線逾時：{host}:{port}')
+    except ConnectionRefusedError:
+        return jsonify(success=False, message=f'連線被拒絕：{host}:{port}')
+    except OSError as e:
+        return jsonify(success=False, message=f'連線失敗：{str(e)}')
+
+
+# 列印收據
+@app.route('/pos/print_receipt', methods=['POST'])
+def pos_print_receipt():
+    data = request.get_json()
+    host = data.get('host', '')
+    port = data.get('port', 9100)
+    store_name = data.get('store_name', '我的商店')
+    items = data.get('items', [])
+    total = data.get('total', 0)
+    note = data.get('note', '')
+
+    if not host:
+        return jsonify(success=False, message='請輸入印表機 IP')
+    if not items:
+        return jsonify(success=False, message='請至少新增一項商品')
+
+    success, message = print_receipt(host, port, store_name, items, total, note)
+    return jsonify(success=success, message=message)
+
+
+# 純文字列印
+@app.route('/pos/print_text', methods=['POST'])
+def pos_print_text():
+    data = request.get_json()
+    host = data.get('host', '')
+    port = data.get('port', 9100)
+    content = data.get('content', '')
+
+    if not host:
+        return jsonify(success=False, message='請輸入印表機 IP')
+    if not content.strip():
+        return jsonify(success=False, message='請輸入列印內容')
+
+    success, message = print_text(host, port, content)
+    return jsonify(success=success, message=message)
+
 
 @app.route('/macros')
 def jinja_macros():

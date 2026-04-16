@@ -1,0 +1,290 @@
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: "Microsoft JhengHei", "PingFang TC", sans-serif;
+    background: #f0f2f5;
+    color: #333;
+    padding: 20px;
+}
+
+.container {
+    max-width: 700px;
+    margin: 0 auto;
+}
+
+h1 {
+    text-align: center;
+    margin-bottom: 24px;
+    color: #1a1a2e;
+}
+
+h2 {
+    font-size: 1.1em;
+    margin-bottom: 12px;
+    color: #16213e;
+}
+
+h3 {
+    font-size: 0.95em;
+    margin: 12px 0 8px;
+    color: #555;
+}
+
+.section {
+    background: #fff;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.form-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.form-row label {
+    min-width: 100px;
+    font-weight: bold;
+    font-size: 0.9em;
+}
+
+input[type="text"],
+input[type="number"],
+textarea {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 0.9em;
+    font-family: inherit;
+}
+
+textarea {
+    width: 100%;
+    resize: vertical;
+}
+
+input:focus, textarea:focus {
+    outline: none;
+    border-color: #4a90d9;
+    box-shadow: 0 0 0 2px rgba(74,144,217,0.2);
+}
+
+/* Buttons */
+.btn {
+    padding: 8px 18px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9em;
+    font-family: inherit;
+    transition: background 0.2s;
+}
+
+.btn-primary {
+    background: #4a90d9;
+    color: #fff;
+    margin-top: 12px;
+}
+
+.btn-primary:hover {
+    background: #357abd;
+}
+
+.btn-secondary {
+    background: #e8e8e8;
+    color: #333;
+}
+
+.btn-secondary:hover {
+    background: #d0d0d0;
+}
+
+.btn-danger {
+    background: #e74c3c;
+    color: #fff;
+}
+
+.btn-danger:hover {
+    background: #c0392b;
+}
+
+.btn-small {
+    padding: 4px 10px;
+    font-size: 0.8em;
+}
+
+/* Tabs */
+.tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 0;
+}
+
+.tab {
+    padding: 10px 20px;
+    border: none;
+    background: #ddd;
+    cursor: pointer;
+    border-radius: 8px 8px 0 0;
+    font-size: 0.9em;
+    font-family: inherit;
+    transition: background 0.2s;
+}
+
+.tab.active {
+    background: #fff;
+    font-weight: bold;
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+.tab-content .section {
+    border-radius: 0 8px 8px 8px;
+    margin-top: 0;
+}
+
+/* Item rows */
+.item-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.item-name {
+    flex: 3;
+}
+
+.item-qty {
+    flex: 1;
+    max-width: 80px;
+}
+
+.item-price {
+    flex: 1;
+    max-width: 100px;
+}
+
+/* Total row */
+.total-row {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 2px solid #eee;
+    font-size: 1.1em;
+}
+
+#total-amount {
+    font-weight: bold;
+    font-size: 1.2em;
+    color: #e74c3c;
+}
+
+/* Connection status */
+.status-ok {
+    color: #27ae60;
+    font-weight: bold;
+    margin-left: 10px;
+}
+
+.status-err {
+    color: #e74c3c;
+    font-weight: bold;
+    margin-left: 10px;
+}
+
+/* Result message */
+.result-message {
+    padding: 12px 16px;
+    border-radius: 4px;
+    margin-bottom: 16px;
+    font-weight: bold;
+    text-align: center;
+    transition: opacity 0.3s;
+}
+
+.result-message.success {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.result-message.error {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.result-message.hidden {
+    display: none;
+}
+
+/* Receipt preview */
+.receipt-preview {
+    background: #fff;
+    border: 2px dashed #ccc;
+    border-radius: 4px;
+    padding: 20px;
+    font-family: "Courier New", "NSimSun", monospace;
+    font-size: 14px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    max-width: 380px;
+    margin: 0 auto;
+}
+
+.preview-placeholder {
+    color: #999;
+    text-align: center;
+}
+
+.preview-store {
+    text-align: center;
+    font-size: 1.4em;
+    font-weight: bold;
+    margin-bottom: 8px;
+}
+
+.preview-separator {
+    color: #888;
+}
+
+.preview-line {
+    margin: 2px 0;
+}
+
+.preview-detail {
+    color: #666;
+    display: flex;
+    justify-content: space-between;
+}
+
+.preview-right {
+    text-align: right;
+}
+
+.preview-total {
+    text-align: right;
+    font-weight: bold;
+    font-size: 1.1em;
+    margin: 4px 0;
+}
+
+.preview-footer {
+    text-align: center;
+    margin-top: 8px;
+    color: #666;
+}

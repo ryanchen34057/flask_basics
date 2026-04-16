@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>POS 印表機控制台</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/pos_styles.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>POS 印表機控制台</h1>
+
+        <!-- 印表機連線設定 -->
+        <div class="section">
+            <h2>印表機設定</h2>
+            <div class="form-row">
+                <label for="printer-ip">印表機 IP：</label>
+                <input type="text" id="printer-ip" placeholder="192.168.1.100" value="192.168.1.100">
+            </div>
+            <div class="form-row">
+                <label for="printer-port">Port：</label>
+                <input type="number" id="printer-port" value="9100" min="1" max="65535">
+            </div>
+            <button id="btn-test" class="btn btn-secondary" onclick="testConnection()">測試連線</button>
+            <span id="connection-status"></span>
+        </div>
+
+        <!-- 模式切換 -->
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('receipt')">收據列印</button>
+            <button class="tab" onclick="switchTab('text')">純文字列印</button>
+        </div>
+
+        <!-- 收據列印 -->
+        <div id="tab-receipt" class="tab-content active">
+            <div class="section">
+                <h2>收據內容</h2>
+                <div class="form-row">
+                    <label for="store-name">店名：</label>
+                    <input type="text" id="store-name" placeholder="我的商店" value="我的商店">
+                </div>
+
+                <h3>商品明細</h3>
+                <div id="items-list">
+                    <div class="item-row">
+                        <input type="text" class="item-name" placeholder="品名">
+                        <input type="number" class="item-qty" placeholder="數量" value="1" min="1">
+                        <input type="number" class="item-price" placeholder="單價" value="0" min="0">
+                        <button class="btn btn-danger btn-small" onclick="removeItem(this)">刪除</button>
+                    </div>
+                </div>
+                <button class="btn btn-secondary" onclick="addItem()">+ 新增商品</button>
+
+                <div class="form-row total-row">
+                    <label>總計：</label>
+                    <span id="total-amount">$0</span>
+                    <button class="btn btn-secondary btn-small" onclick="calculateTotal()">重新計算</button>
+                </div>
+
+                <div class="form-row">
+                    <label for="note">備註：</label>
+                    <textarea id="note" rows="2" placeholder="選填備註..."></textarea>
+                </div>
+
+                <button class="btn btn-primary" onclick="printReceipt()">列印收據</button>
+            </div>
+        </div>
+
+        <!-- 純文字列印 -->
+        <div id="tab-text" class="tab-content">
+            <div class="section">
+                <h2>純文字列印</h2>
+                <div class="form-row">
+                    <label for="text-content">列印內容：</label>
+                    <textarea id="text-content" rows="8" placeholder="輸入要列印的文字..."></textarea>
+                </div>
+                <button class="btn btn-primary" onclick="printText()">列印文字</button>
+            </div>
+        </div>
+
+        <!-- 結果訊息 -->
+        <div id="result-message" class="result-message hidden"></div>
+
+        <!-- 列印預覽 -->
+        <div class="section">
+            <h2>收據預覽</h2>
+            <div id="receipt-preview" class="receipt-preview">
+                <p class="preview-placeholder">填入資料後會顯示預覽</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function switchTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.getElementById('tab-' + tab).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        function addItem() {
+            const list = document.getElementById('items-list');
+            const row = document.createElement('div');
+            row.className = 'item-row';
+            row.innerHTML = `
+                <input type="text" class="item-name" placeholder="品名">
+                <input type="number" class="item-qty" placeholder="數量" value="1" min="1">
+                <input type="number" class="item-price" placeholder="單價" value="0" min="0">
+                <button class="btn btn-danger btn-small" onclick="removeItem(this)">刪除</button>
+            `;
+            list.appendChild(row);
+        }
+
+        function removeItem(btn) {
+            const rows = document.querySelectorAll('.item-row');
+            if (rows.length > 1) {
+                btn.parentElement.remove();
+                calculateTotal();
+            }
+        }
+
+        function getItems() {
+            const items = [];
+            document.querySelectorAll('.item-row').forEach(row => {
+                const name = row.querySelector('.item-name').value.trim();
+                const qty = parseInt(row.querySelector('.item-qty').value) || 0;
+                const price = parseInt(row.querySelector('.item-price').value) || 0;
+                if (name) {
+                    items.push({ name, qty, price });
+                }
+            });
+            return items;
+        }
+
+        function calculateTotal() {
+            const items = getItems();
+            let total = 0;
+            items.forEach(item => { total += item.qty * item.price; });
+            document.getElementById('total-amount').textContent = '$' + total;
+            updatePreview();
+            return total;
+        }
+
+        function updatePreview() {
+            const storeName = document.getElementById('store-name').value || '我的商店';
+            const items = getItems();
+            const total = items.reduce((sum, item) => sum + item.qty * item.price, 0);
+            const note = document.getElementById('note').value;
+
+            let html = `<div class="preview-store">${storeName}</div>`;
+            html += '<div class="preview-separator">================================</div>';
+
+            if (items.length === 0) {
+                html += '<div class="preview-line">（尚未新增商品）</div>';
+            } else {
+                items.forEach(item => {
+                    const lineTotal = item.qty * item.price;
+                    html += `<div class="preview-line">${item.name}</div>`;
+                    html += `<div class="preview-detail">  ${item.qty} x $${item.price}<span class="preview-right">$${lineTotal}</span></div>`;
+                });
+            }
+
+            html += '<div class="preview-separator">================================</div>';
+            html += `<div class="preview-total">總計: $${total}</div>`;
+
+            if (note) {
+                html += '<div class="preview-separator">--------------------------------</div>';
+                html += `<div class="preview-line">備註: ${note}</div>`;
+            }
+
+            html += '<div class="preview-footer">謝謝光臨！</div>';
+
+            document.getElementById('receipt-preview').innerHTML = html;
+        }
+
+        // 即時更新預覽
+        document.addEventListener('input', function(e) {
+            if (e.target.closest('#tab-receipt')) {
+                calculateTotal();
+            }
+        });
+
+        function showResult(success, message) {
+            const el = document.getElementById('result-message');
+            el.textContent = message;
+            el.className = 'result-message ' + (success ? 'success' : 'error');
+            setTimeout(() => { el.className = 'result-message hidden'; }, 5000);
+        }
+
+        function getPrinterConfig() {
+            return {
+                host: document.getElementById('printer-ip').value.trim(),
+                port: parseInt(document.getElementById('printer-port').value) || 9100
+            };
+        }
+
+        async function testConnection() {
+            const config = getPrinterConfig();
+            const status = document.getElementById('connection-status');
+            status.textContent = '測試中...';
+            status.className = '';
+
+            try {
+                const res = await fetch('/pos/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+                const data = await res.json();
+                status.textContent = data.message;
+                status.className = data.success ? 'status-ok' : 'status-err';
+            } catch (e) {
+                status.textContent = '請求失敗：' + e.message;
+                status.className = 'status-err';
+            }
+        }
+
+        async function printReceipt() {
+            const config = getPrinterConfig();
+            const items = getItems();
+            const total = calculateTotal();
+
+            if (!config.host) {
+                showResult(false, '請輸入印表機 IP');
+                return;
+            }
+            if (items.length === 0) {
+                showResult(false, '請至少新增一項商品');
+                return;
+            }
+
+            const payload = {
+                host: config.host,
+                port: config.port,
+                store_name: document.getElementById('store-name').value || '我的商店',
+                items: items,
+                total: total,
+                note: document.getElementById('note').value
+            };
+
+            try {
+                const res = await fetch('/pos/print_receipt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                showResult(data.success, data.message);
+            } catch (e) {
+                showResult(false, '請求失敗：' + e.message);
+            }
+        }
+
+        async function printText() {
+            const config = getPrinterConfig();
+            const content = document.getElementById('text-content').value;
+
+            if (!config.host) {
+                showResult(false, '請輸入印表機 IP');
+                return;
+            }
+            if (!content.trim()) {
+                showResult(false, '請輸入列印內容');
+                return;
+            }
+
+            try {
+                const res = await fetch('/pos/print_text', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        host: config.host,
+                        port: config.port,
+                        content: content
+                    })
+                });
+                const data = await res.json();
+                showResult(data.success, data.message);
+            } catch (e) {
+                showResult(false, '請求失敗：' + e.message);
+            }
+        }
+
+        // 初始化預覽
+        updatePreview();
+    </script>
+</body>
+</html>
